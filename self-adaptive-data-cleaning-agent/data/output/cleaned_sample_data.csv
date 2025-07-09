@@ -1,0 +1,8 @@
+name,age,email,phone,city
+John Doe,25.0,john@example.com,123-456-7890,New York
+Jane Smith,,jane.smith@email.com,987-654-3210,Los Angeles
+Bob Johnson,35.0,bob@invalid,555-0123,Chicago
+Alice Brown,28.0,alice@example.com,555-0124,Houston
+John Doe,25.0,john@example.com,123-456-7890,New York
+Mike Wilson,45.0,mike@example.com,,Miami
+Sarah Davis,32.0,sarah@example.com,555-0125,Seattle
