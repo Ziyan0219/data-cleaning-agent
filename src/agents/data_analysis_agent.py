@@ -18,6 +18,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.prompts import ChatPromptTemplate
 
 from ..config.settings import get_settings
+from ..utils.json_utils import prepare_for_llm, safe_json_dumps
 
 
 class DataAnalysisAgent:
@@ -138,8 +139,8 @@ Please always return structured analysis results in JSON format."""),
                 # Infer column type and characteristics
                 column_info = {
                     "data_type": str(df[col].dtype),
-                    "nullable": df[col].isnull().any(),
-                    "unique_count": df[col].nunique(),
+                    "nullable": bool(df[col].isnull().any()),  # Convert numpy.bool_ to Python bool
+                    "unique_count": int(df[col].nunique()),   # Convert numpy.int64 to Python int
                     "sample_values": col_data.head(5).tolist()
                 }
                 
@@ -180,10 +181,10 @@ Please always return structured analysis results in JSON format."""),
         
         # Detect other characteristics
         detected_patterns.update({
-            "avg_length": sample_values.str.len().mean(),
-            "max_length": sample_values.str.len().max(),
-            "min_length": sample_values.str.len().min(),
-            "contains_special_chars": sample_values.str.contains(r'[^a-zA-Z0-9\s]').any()
+            "avg_length": float(sample_values.str.len().mean()),
+            "max_length": int(sample_values.str.len().max()),
+            "min_length": int(sample_values.str.len().min()),
+            "contains_special_chars": bool(sample_values.str.contains(r'[^a-zA-Z0-9\s]').any())
         })
         
         return {"patterns": detected_patterns}
@@ -239,10 +240,13 @@ Please always return structured analysis results in JSON format."""),
             # Prepare data sample (limit length)
             data_sample = data[:2000] if len(data) > 2000 else data
             
+            # Prepare schema_info for LLM (ensure JSON serializable)
+            safe_schema_info = prepare_for_llm(schema_info)
+            
             # Build prompt
             prompt = self.analysis_prompt.format_messages(
                 data_sample=data_sample,
-                schema_info=json.dumps(schema_info, indent=2),
+                schema_info=safe_json_dumps(safe_schema_info, indent=2),
                 user_requirements=user_requirements
             )
             
@@ -602,8 +606,8 @@ Please always return structured analysis results in JSON format."""),
         if len(text_values) == 0:
             return False
         
-        has_upper = text_values.str.contains(r'[A-Z]').any()
-        has_lower = text_values.str.contains(r'[a-z]').any()
+        has_upper = bool(text_values.str.contains(r'[A-Z]').any())
+        has_lower = bool(text_values.str.contains(r'[a-z]').any())
         
         return has_upper and has_lower
     
