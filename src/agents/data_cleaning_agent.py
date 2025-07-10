@@ -37,6 +37,52 @@ class DataCleaningAgent:
             "type_conversion": self._convert_data_types
         }
         
+        # Strategy mapping: maps specific cleaning methods to strategy categories
+        self.strategy_mapping = {
+            # Missing values strategies
+            "fill_mean": "missing_values",
+            "fill_median": "missing_values",
+            "fill_mode": "missing_values",
+            "fill_forward": "missing_values",
+            "fill_backward": "missing_values",
+            "fill_zero": "missing_values",
+            "fill_constant": "missing_values",
+            "drop_missing": "missing_values",
+            "interpolate": "missing_values",
+            
+            # Duplicate strategies
+            "remove_duplicates": "duplicates",
+            "keep_first": "duplicates",
+            "keep_last": "duplicates",
+            "mark_duplicates": "duplicates",
+            
+            # Format standardization strategies
+            "standardize_text": "format_standardization",
+            "normalize_case": "format_standardization",
+            "trim_whitespace": "format_standardization",
+            "standardize_dates": "format_standardization",
+            "standardize_phone": "format_standardization",
+            "standardize_email": "format_standardization",
+            
+            # Outlier treatment strategies
+            "remove_outliers": "outlier_treatment",
+            "cap_outliers": "outlier_treatment",
+            "transform_outliers": "outlier_treatment",
+            "manual_review": "outlier_treatment",
+            
+            # Data validation strategies
+            "validate_range": "data_validation",
+            "validate_format": "data_validation",
+            "validate_constraints": "data_validation",
+            "check_consistency": "data_validation",
+            
+            # Type conversion strategies
+            "convert_numeric": "type_conversion",
+            "convert_datetime": "type_conversion",
+            "convert_categorical": "type_conversion",
+            "convert_boolean": "type_conversion"
+        }
+        
         logger.info("Data Cleaning Agent initialized successfully")
     
     def _create_cleaning_prompt(self) -> ChatPromptTemplate:
@@ -132,21 +178,34 @@ Please ensure:
         logger.debug(f"Executing operation: {operation_type}")
         
         try:
-            # Get strategy function
+            # Get strategy function with mapping support
             strategy_name = operation.get("strategy", operation_type)
-            strategy_func = self.cleaning_strategies.get(strategy_name)
+            
+            # Map specific strategy to category if needed
+            if strategy_name in self.strategy_mapping:
+                mapped_strategy = self.strategy_mapping[strategy_name]
+                logger.debug(f"Mapped strategy '{strategy_name}' to '{mapped_strategy}'")
+            else:
+                mapped_strategy = strategy_name
+            
+            strategy_func = self.cleaning_strategies.get(mapped_strategy)
             
             if not strategy_func:
-                raise ValueError(f"Unknown cleaning strategy: {strategy_name}")
+                # Try to use operation_type as fallback
+                strategy_func = self.cleaning_strategies.get(operation_type)
+                if not strategy_func:
+                    raise ValueError(f"Unknown cleaning strategy: {strategy_name} (mapped to: {mapped_strategy})")
+                mapped_strategy = operation_type
             
-            # Execute strategy
+            # Execute strategy with original strategy name for context
             result_data = strategy_func(data, operation, config)
             
             # Create operation log
             operation_log = {
                 "operation_id": operation_id,
                 "operation_type": operation_type,
-                "strategy": strategy_name,
+                "strategy": strategy_name,  # Keep original strategy name
+                "mapped_strategy": mapped_strategy,  # Add mapped strategy for debugging
                 "affected_columns": operation.get("affected_columns", []),
                 "parameters": operation.get("parameters", {}),
                 "status": "success",

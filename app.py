@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from src.agents.main_controller import process_cleaning_request
 from src.config.settings import get_settings
+from src.utils.json_utils import convert_numpy_types, NumpyJSONEncoder
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -244,13 +245,16 @@ async def clean_data(
             session_id = result['session_id']
             cleaning_results[session_id] = result
             
+            # Convert numpy types for JSON serialization
+            safe_result = convert_numpy_types(result)
+            
             return CleaningResponse(
                 session_id=session_id,
-                status=result['status'],
-                execution_time=result.get('execution_time', 0),
-                quality_metrics=result.get('quality_metrics', {}),
-                results=result.get('results', {}),
-                error=result.get('error')
+                status=safe_result['status'],
+                execution_time=safe_result.get('execution_time', 0),
+                quality_metrics=safe_result.get('quality_metrics', {}),
+                results=safe_result.get('results', {}),
+                error=safe_result.get('error')
             )
             
         finally:
