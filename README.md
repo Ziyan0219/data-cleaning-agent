@@ -18,7 +18,7 @@ An intelligent data cleaning system based on LangChain and LangGraph, featuring 
 
 ```bash
 # Clone the project
-git clone <your-repo-url>
+git clone https://github.com/Ziyan0219/data-cleaning-agent.git
 cd data_cleaning_agent_english
 
 # Create virtual environment
@@ -280,14 +280,6 @@ custom_rules = {
 ### Q: Slow processing
 **A:** Consider using a faster model or enabling parallel processing
 
-For more issues, see [Troubleshooting Guide](docs/troubleshooting.md)
-
-## 📚 Documentation
-
-- [Complete Development Guide](docs/development_guide.md)
-- [API Reference](docs/api_reference.md)
-- [Configuration Guide](docs/configuration.md)
-- [Extension Development](docs/extensions.md)
 
 ## 🤝 Contributing
 
@@ -299,9 +291,6 @@ Contributions are welcome! Please follow these steps:
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
 
 ## 🙏 Acknowledgments
 
@@ -313,8 +302,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 If you have questions or suggestions, please contact us through:
 
-- Submit Issue: [GitHub Issues](https://github.com/your-repo/issues)
-- Email: your-email@example.com
+- Submit Issue: https://github.com/Ziyan0219/data-cleaning-agent/issues
+- Email: ziyanxinbci@gmail.com
 
 ---
 
