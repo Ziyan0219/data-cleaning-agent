@@ -1,0 +1,17 @@
+id,name,email,age,salary,department,join_date,status
+1,John Doe,john.doe@email.com,28,50000,Engineering,2023-01-15,Active
+2,Jane Smith,jane.smith@email.com,32,65000,Marketing,2022-03-20,Active
+3,Bob Johnson,,35,55000,Sales,2023-02-10,Active
+4,Alice Brown,alice.brown@email.com,29,60000,Engineering,2022-11-05,Active
+5,Charlie Wilson,charlie.wilson@email.com,45,75000,Management,2021-06-12,Active
+6,Diana Lee,diana.lee@email.com,31,58000,Marketing,2023-04-18,Inactive
+7,Frank Miller,frank.miller@email.com,38,62000,Sales,2022-08-30,Active
+8,Grace Taylor,grace.taylor@email.com,27,52000,Engineering,2023-05-22,Active
+9,Henry Davis,henry.davis@email.com,33,67000,Marketing,2022-12-01,Active
+10,Ivy Chen,,30,59000,Engineering,2023-03-08,Active
+11,Jack Brown,jack.brown@email.com,42,72000,Management,2021-09-15,Active
+12,Kate Wilson,kate.wilson@email.com,26,48000,Sales,2023-06-10,Active
+13,Leo Garcia,leo.garcia@email.com,34,61000,Engineering,2022-10-25,Active
+14,Mia Rodriguez,mia.rodriguez@email.com,29,56000,Marketing,2023-01-30,Active
+15,Nick Thompson,nick.thompson@email.com,37,64000,Sales,2022-07-14,Inactive
+
