@@ -1,0 +1,40 @@
+# Core frameworks
+langchain==0.3.15
+langgraph==0.2.45
+langchain-openai==0.2.10
+langchain-community==0.3.15
+
+# Data processing
+pandas==2.2.3
+numpy==1.26.4
+openpyxl==3.1.5
+xlsxwriter==3.2.0
+
+# Data validation
+pydantic==2.10.3
+jsonschema==4.23.0
+
+# Utilities and tools
+python-dotenv==1.0.1
+rich==13.9.4
+typer==0.15.1
+loguru==0.7.2
+
+# Web interface
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+
+# Optional: Database connections
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+
+# Optional: Web search tools
+tavily-python==0.5.0
+
+# Development and testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+black==24.10.0
+flake8==7.1.1
+
