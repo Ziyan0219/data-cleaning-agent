@@ -46,37 +46,166 @@ Please always return structured analysis results in JSON format."""),
             ("human", template)
         ])
     
-    def analyze_data_quality(self, data: str, user_requirements: str) -> Dict[str, Any]:
-        """Analyze data quality"""
-        logger.info("Starting data quality analysis")
-        
+    def analyze_data(self, data: str, user_requirements: str) -> Dict[str, Any]:
+        """Analyze data quality with cattle-specific business rules"""
         try:
-            # 1. Basic statistical analysis
-            basic_stats = self._calculate_basic_statistics(data)
+            logger.info("Starting cattle data quality analysis")
             
-            # 2. Data schema inference
-            schema_info = self._infer_data_schema(data)
+            # Parse data
+            df = self._parse_data(data)
             
-            # 3. LLM-driven quality analysis
-            llm_analysis = self._llm_quality_analysis(data, schema_info, user_requirements)
+            # Cattle-specific analysis
+            cattle_analysis = self._analyze_cattle_data(df)
             
-            # 4. Rule-based issue detection
-            rule_based_issues = self._rule_based_detection(data, schema_info)
+            # Generate schema information
+            schema_info = self._generate_schema_info(df)
             
-            # 5. Comprehensive analysis synthesis
-            comprehensive_analysis = self._synthesize_analysis(
-                basic_stats, llm_analysis, rule_based_issues
-            )
+            # Combine all analysis results
+            result = {
+                "data_overview": {
+                    "total_lots": len(df),
+                    "columns": list(df.columns),
+                    "data_types": {col: str(df[col].dtype) for col in df.columns}
+                },
+                "cattle_analysis": cattle_analysis,
+                "schema_info": schema_info,
+                "cleaning_recommendations": self._generate_cattle_cleaning_plan(cattle_analysis),
+                "analysis_timestamp": datetime.now().isoformat()
+            }
             
-            logger.info(f"Analysis completed, found {len(comprehensive_analysis['quality_issues'])} quality issues")
-            
-            return comprehensive_analysis
+            logger.info("Cattle data analysis completed successfully")
+            return result
             
         except Exception as e:
-            logger.error(f"Data quality analysis failed: {str(e)}")
-            return self._create_error_response(str(e))
+            logger.error(f"Data analysis failed: {str(e)}")
+            return {
+                "error": str(e),
+                "analysis_timestamp": datetime.now().isoformat()
+            }
     
-    def _calculate_basic_statistics(self, data: str) -> Dict[str, Any]:
+    def _analyze_cattle_data(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Analyze cattle data for specific business issues"""
+        analysis = {
+            "weight_analysis": {},
+            "outlier_lots": [],
+            "review_lots": [],
+            "label_issues": [],
+            "summary": {}
+        }
+        
+        # Define weight thresholds
+        NORMAL_ENTRY_MIN, NORMAL_ENTRY_MAX = 550, 800
+        NORMAL_EXIT_MIN, NORMAL_EXIT_MAX = 1100, 1500
+        
+        OUTLIER_ENTRY_THRESHOLD = NORMAL_ENTRY_MAX * 1.3  # 1040 lbs
+        OUTLIER_EXIT_THRESHOLD = NORMAL_EXIT_MAX * 1.3    # 1950 lbs
+        
+        # Analyze each lot
+        for idx, row in df.iterrows():
+            lot_id = row.get('lot_id', f'LOT_{idx}')
+            entry_weight = row.get('entry_weight_lbs', 0)
+            exit_weight = row.get('exit_weight_lbs', 0)
+            ready_to_load = str(row.get('ready_to_load', '')).strip().lower()
+            
+            # Check for outlier weights (>1.3x threshold)
+            if (entry_weight > OUTLIER_ENTRY_THRESHOLD or 
+                exit_weight > OUTLIER_EXIT_THRESHOLD):
+                analysis["outlier_lots"].append({
+                    "lot_id": lot_id,
+                    "entry_weight": entry_weight,
+                    "exit_weight": exit_weight,
+                    "issue": "Extreme outlier weights",
+                    "action": "DELETE"
+                })
+            
+            # Check for questionable weights (1.0-1.3x threshold)
+            elif ((entry_weight > NORMAL_ENTRY_MAX and entry_weight <= OUTLIER_ENTRY_THRESHOLD) or
+                  (exit_weight > NORMAL_EXIT_MAX and exit_weight <= OUTLIER_EXIT_THRESHOLD)):
+                analysis["review_lots"].append({
+                    "lot_id": lot_id,
+                    "entry_weight": entry_weight,
+                    "exit_weight": exit_weight,
+                    "issue": "Questionable weights need review",
+                    "action": "MANUAL_REVIEW"
+                })
+            
+            # Check for incorrect ready_to_load labels
+            # If weights are in normal range but marked as not ready
+            elif (NORMAL_ENTRY_MIN <= entry_weight <= NORMAL_ENTRY_MAX and
+                  NORMAL_EXIT_MIN <= exit_weight <= NORMAL_EXIT_MAX and
+                  ready_to_load in ['no', 'false', '0']):
+                analysis["label_issues"].append({
+                    "lot_id": lot_id,
+                    "entry_weight": entry_weight,
+                    "exit_weight": exit_weight,
+                    "current_label": ready_to_load,
+                    "issue": "Should be ready to load",
+                    "action": "CORRECT_LABEL"
+                })
+        
+        # Generate summary
+        analysis["summary"] = {
+            "total_lots": len(df),
+            "outlier_lots_count": len(analysis["outlier_lots"]),
+            "review_lots_count": len(analysis["review_lots"]),
+            "label_issues_count": len(analysis["label_issues"]),
+            "clean_lots_count": (len(df) - len(analysis["outlier_lots"]) - 
+                               len(analysis["review_lots"]) - len(analysis["label_issues"]))
+        }
+        
+        return analysis
+    
+    def _generate_cattle_cleaning_plan(self, cattle_analysis: Dict) -> List[Dict]:
+        """Generate specific cleaning plan for cattle data"""
+        cleaning_plan = []
+        
+        # Plan for outlier deletion
+        if cattle_analysis["outlier_lots"]:
+            cleaning_plan.append({
+                "operation_id": "delete_outliers",
+                "operation_type": "outlier_treatment",
+                "strategy": "remove_outliers",
+                "description": f"Delete {len(cattle_analysis['outlier_lots'])} lots with extreme outlier weights",
+                "affected_lots": [lot["lot_id"] for lot in cattle_analysis["outlier_lots"]],
+                "parameters": {
+                    "method": "delete_rows",
+                    "threshold_multiplier": 1.3
+                },
+                "priority": 1
+            })
+        
+        # Plan for manual review flagging
+        if cattle_analysis["review_lots"]:
+            cleaning_plan.append({
+                "operation_id": "flag_for_review",
+                "operation_type": "data_validation",
+                "strategy": "manual_review",
+                "description": f"Flag {len(cattle_analysis['review_lots'])} lots for manual weight review",
+                "affected_lots": [lot["lot_id"] for lot in cattle_analysis["review_lots"]],
+                "parameters": {
+                    "method": "add_review_flag",
+                    "review_reason": "questionable_weights"
+                },
+                "priority": 2
+            })
+        
+        # Plan for label correction
+        if cattle_analysis["label_issues"]:
+            cleaning_plan.append({
+                "operation_id": "correct_labels",
+                "operation_type": "data_validation",
+                "strategy": "validate_constraints",
+                "description": f"Correct ready_to_load labels for {len(cattle_analysis['label_issues'])} lots",
+                "affected_lots": [lot["lot_id"] for lot in cattle_analysis["label_issues"]],
+                "parameters": {
+                    "method": "correct_labels",
+                    "target_column": "ready_to_load",
+                    "new_value": "Yes"
+                },
+                "priority": 3
+            })
+        
+        return cleaning_planDict[str, Any]:
         """Calculate basic statistical information"""
         try:
             # Try to parse as DataFrame

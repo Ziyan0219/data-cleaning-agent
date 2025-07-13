@@ -234,8 +234,9 @@ Please ensure:
     
     def _handle_missing_values(self, data: pd.DataFrame, operation: Dict, 
                              config: Dict) -> pd.DataFrame:
-        """Handle missing values - implement based on your specific needs"""
-        strategy = operation.get("strategy", "fill_mean")
+        """Handle missing values - cattle data typically doesn't have missing values"""
+        # For cattle data, missing values are rare and should be flagged for review
+        strategy = operation.get("strategy", "flag_missing")
         affected_columns = operation.get("affected_columns", [])
         
         result_data = data.copy()
@@ -247,16 +248,57 @@ Please ensure:
             if col not in data.columns:
                 continue
                 
-            if strategy == "drop":
-                result_data = result_data.dropna(subset=[col])
-            elif strategy == "fill_mean" and data[col].dtype in ['int64', 'float64']:
-                result_data[col] = result_data[col].fillna(data[col].mean())
-            elif strategy == "fill_median" and data[col].dtype in ['int64', 'float64']:
-                result_data[col] = result_data[col].fillna(data[col].median())
-            elif strategy == "fill_mode":
-                result_data[col] = result_data[col].fillna(data[col].mode().iloc[0] if not data[col].mode().empty else "")
-            elif strategy == "interpolate" and data[col].dtype in ['int64', 'float64']:
-                result_data[col] = result_data[col].interpolate()
+            if strategy == "flag_missing":
+                # Add a flag column for missing values
+                missing_mask = result_data[col].isnull()
+                if missing_mask.any():
+                    result_data[f'{col}_needs_review'] = missing_mask
+        
+        return result_data
+    
+    def _treat_outliers(self, data: pd.DataFrame, operation: Dict, 
+                       config: Dict) -> pd.DataFrame:
+        """Handle outlier treatment for cattle weights"""
+        strategy = operation.get("strategy", "remove_outliers")
+        affected_lots = operation.get("affected_lots", [])
+        
+        result_data = data.copy()
+        
+        if strategy == "remove_outliers":
+            # Remove rows with outlier weights
+            if affected_lots:
+                mask = ~result_data['lot_id'].isin(affected_lots)
+                result_data = result_data[mask]
+                logger.info(f"Removed {len(affected_lots)} outlier lots")
+        
+        elif strategy == "manual_review":
+            # Add review flag for questionable weights
+            if affected_lots:
+                mask = result_data['lot_id'].isin(affected_lots)
+                result_data.loc[mask, 'needs_manual_review'] = True
+                result_data.loc[mask, 'review_reason'] = 'questionable_weights'
+                logger.info(f"Flagged {len(affected_lots)} lots for manual review")
+        
+        return result_data
+    
+    def _validate_data_integrity(self, data: pd.DataFrame, operation: Dict, 
+                               config: Dict) -> pd.DataFrame:
+        """Validate and correct data integrity issues"""
+        strategy = operation.get("strategy", "validate_constraints")
+        affected_lots = operation.get("affected_lots", [])
+        parameters = operation.get("parameters", {})
+        
+        result_data = data.copy()
+        
+        if strategy == "validate_constraints" and parameters.get("method") == "correct_labels":
+            # Correct ready_to_load labels
+            target_column = parameters.get("target_column", "ready_to_load")
+            new_value = parameters.get("new_value", "Yes")
+            
+            if affected_lots:
+                mask = result_data['lot_id'].isin(affected_lots)
+                result_data.loc[mask, target_column] = new_value
+                logger.info(f"Corrected {target_column} labels for {len(affected_lots)} lots")
         
         return result_data
     

@@ -25,8 +25,188 @@ class ResultAggregationAgent:
     def aggregate_results(self, analysis_results: Dict, 
                         cleaning_results: Dict, 
                         validation_results: Dict) -> Dict[str, Any]:
-        """Aggregate all results - implement based on your specific needs"""
-        logger.info("Starting results aggregation")
+        """Aggregate all results into comprehensive cattle data report"""
+        logger.info("Starting cattle data results aggregation")
+        
+        try:
+            # Generate cattle-specific report
+            final_report = self._generate_cattle_report(
+                analysis_results, cleaning_results, validation_results
+            )
+            
+            # Create executive summary
+            executive_summary = self._create_cattle_executive_summary(
+                analysis_results, cleaning_results, validation_results
+            )
+            
+            # Compile detailed metrics
+            detailed_metrics = self._compile_cattle_metrics(
+                analysis_results, cleaning_results, validation_results
+            )
+            
+            # Prepare visualization data
+            charts_data = self._prepare_cattle_visualization_data(
+                analysis_results, cleaning_results, validation_results
+            )
+            
+            result = {
+                "session_id": cleaning_results.get("session_id", "unknown"),
+                "final_report": final_report,
+                "executive_summary": executive_summary,
+                "detailed_metrics": detailed_metrics,
+                "charts_data": charts_data,
+                "recommendations": self._generate_cattle_recommendations(analysis_results, cleaning_results),
+                "timestamp": datetime.now().isoformat(),
+                "status": "completed"
+            }
+            
+            logger.info("Cattle data results aggregation completed successfully")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Results aggregation failed: {str(e)}")
+            return {
+                "error": str(e),
+                "timestamp": datetime.now().isoformat(),
+                "status": "failed"
+            }
+    
+    def _generate_cattle_report(self, analysis_results: Dict, cleaning_results: Dict, 
+                              validation_results: Dict) -> str:
+        """Generate detailed cattle data cleaning report"""
+        
+        # Extract cattle analysis data
+        cattle_analysis = analysis_results.get("cattle_analysis", {})
+        summary = cattle_analysis.get("summary", {})
+        
+        # Extract cleaning operations
+        operation_log = cleaning_results.get("operation_log", [])
+        
+        report_sections = []
+        
+        # Header
+        report_sections.append("# CATTLE DATA CLEANING REPORT")
+        report_sections.append(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report_sections.append("")
+        
+        # Executive Summary
+        report_sections.append("## EXECUTIVE SUMMARY")
+        total_lots = summary.get("total_lots", 0)
+        outlier_count = summary.get("outlier_lots_count", 0)
+        review_count = summary.get("review_lots_count", 0)
+        label_count = summary.get("label_issues_count", 0)
+        clean_count = summary.get("clean_lots_count", 0)
+        
+        report_sections.append(f"- **Total Lots Processed:** {total_lots}")
+        report_sections.append(f"- **Clean Lots:** {clean_count}")
+        report_sections.append(f"- **Issues Resolved:** {outlier_count + label_count}")
+        report_sections.append(f"- **Lots Requiring Manual Review:** {review_count}")
+        report_sections.append("")
+        
+        # Problem Classification
+        report_sections.append("## PROBLEM CLASSIFICATION")
+        
+        if outlier_count > 0:
+            report_sections.append("### 1. EXTREME OUTLIER WEIGHTS (DELETED)")
+            report_sections.append(f"**Count:** {outlier_count} lots")
+            report_sections.append("**Action:** Automatically deleted due to impossible weight values")
+            report_sections.append("**Criteria:** Entry weight >1040 lbs OR Exit weight >1950 lbs")
+            
+            outlier_lots = cattle_analysis.get("outlier_lots", [])
+            if outlier_lots:
+                report_sections.append("**Deleted Lots:**")
+                for lot in outlier_lots[:5]:  # Show first 5
+                    report_sections.append(f"- {lot['lot_id']}: Entry {lot['entry_weight']} lbs, Exit {lot['exit_weight']} lbs")
+                if len(outlier_lots) > 5:
+                    report_sections.append(f"- ... and {len(outlier_lots) - 5} more lots")
+            report_sections.append("")
+        
+        if review_count > 0:
+            report_sections.append("### 2. QUESTIONABLE WEIGHTS (MANUAL REVIEW REQUIRED)")
+            report_sections.append(f"**Count:** {review_count} lots")
+            report_sections.append("**Action:** Flagged for manual review")
+            report_sections.append("**Criteria:** Weights between normal range and 1.3x threshold")
+            
+            review_lots = cattle_analysis.get("review_lots", [])
+            if review_lots:
+                report_sections.append("**Lots Requiring Review:**")
+                for lot in review_lots:
+                    report_sections.append(f"- {lot['lot_id']}: Entry {lot['entry_weight']} lbs, Exit {lot['exit_weight']} lbs")
+            report_sections.append("")
+        
+        if label_count > 0:
+            report_sections.append("### 3. INCORRECT READY_TO_LOAD LABELS (CORRECTED)")
+            report_sections.append(f"**Count:** {label_count} lots")
+            report_sections.append("**Action:** Labels corrected from 'No' to 'Yes'")
+            report_sections.append("**Criteria:** Normal weights but marked as not ready")
+            
+            label_lots = cattle_analysis.get("label_issues", [])
+            if label_lots:
+                report_sections.append("**Corrected Lots:**")
+                for lot in label_lots:
+                    report_sections.append(f"- {lot['lot_id']}: {lot['current_label']} → Yes")
+            report_sections.append("")
+        
+        # Processing Summary
+        report_sections.append("## PROCESSING SUMMARY")
+        successful_ops = len([op for op in operation_log if op.get("status") == "success"])
+        failed_ops = len([op for op in operation_log if op.get("status") == "failed"])
+        
+        report_sections.append(f"- **Successful Operations:** {successful_ops}")
+        report_sections.append(f"- **Failed Operations:** {failed_ops}")
+        
+        if operation_log:
+            report_sections.append("**Operations Performed:**")
+            for op in operation_log:
+                status_icon = "✅" if op.get("status") == "success" else "❌"
+                report_sections.append(f"{status_icon} {op.get('description', 'Unknown operation')}")
+        report_sections.append("")
+        
+        # Final Status
+        report_sections.append("## FINAL STATUS")
+        if review_count > 0:
+            report_sections.append(f"⚠️  **{review_count} lots require manual review before processing**")
+        else:
+            report_sections.append("✅ **All lots are ready for processing**")
+        
+        report_sections.append(f"📊 **Data Quality Score:** {self._calculate_quality_score(summary)}%")
+        report_sections.append("")
+        
+        # Next Steps
+        if review_count > 0:
+            report_sections.append("## NEXT STEPS")
+            report_sections.append("1. Review flagged lots for weight accuracy")
+            report_sections.append("2. Verify or correct questionable weight measurements")
+            report_sections.append("3. Re-run processing after manual corrections")
+        
+        return "\n".join(report_sections)
+    
+    def _calculate_quality_score(self, summary: Dict) -> int:
+        """Calculate data quality score"""
+        total = summary.get("total_lots", 1)
+        clean = summary.get("clean_lots_count", 0)
+        corrected = summary.get("label_issues_count", 0)
+        
+        # Clean lots + corrected lots / total lots
+        quality_score = ((clean + corrected) / total) * 100
+        return int(quality_score)
+    
+    def _create_cattle_executive_summary(self, analysis_results: Dict, cleaning_results: Dict, 
+                                       validation_results: Dict) -> str:
+        """Generate executive summary for cattle data"""
+        cattle_analysis = analysis_results.get("cattle_analysis", {})
+        summary = cattle_analysis.get("summary", {})
+        
+        total_lots = summary.get("total_lots", 0)
+        issues_resolved = summary.get("outlier_lots_count", 0) + summary.get("label_issues_count", 0)
+        review_needed = summary.get("review_lots_count", 0)
+        
+        if review_needed > 0:
+            status = f"Processing completed with {review_needed} lots requiring manual review"
+        else:
+            status = "All lots successfully processed and ready for loading"
+        
+        return f"Processed {total_lots} cattle lots, resolved {issues_resolved} issues automatically. {status}."
         
         try:
             # Generate final report

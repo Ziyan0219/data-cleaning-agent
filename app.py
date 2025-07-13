@@ -248,12 +248,20 @@ async def clean_data(
             # Convert numpy types for JSON serialization
             safe_result = convert_numpy_types(result)
             
+            # Extract report content for direct display
+            final_report = safe_result.get("final_report", "Report generation failed")
+            executive_summary = safe_result.get("executive_summary", "No summary available")
+            
             return CleaningResponse(
                 session_id=session_id,
-                status=safe_result['status'],
+                status=safe_result.get('status', 'completed'),
                 execution_time=safe_result.get('execution_time', 0),
-                quality_metrics=safe_result.get('quality_metrics', {}),
-                results=safe_result.get('results', {}),
+                quality_metrics=safe_result.get('detailed_metrics', {}),
+                results={
+                    "report": final_report,
+                    "summary": executive_summary,
+                    "download_available": True
+                },
                 error=safe_result.get('error')
             )
             
