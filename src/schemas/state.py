@@ -5,14 +5,15 @@ This module defines various state structures used in the data cleaning workflow,
 based on TypedDict to ensure type safety and data consistency.
 """
 
-from typing import TypedDict, List, Dict, Optional, Any
+from typing import TypedDict, List, Dict, Optional, Any, Annotated
 from datetime import datetime
 from langchain_core.messages import BaseMessage
+from langgraph.graph import add_messages
 
 
 class DataCleaningState(TypedDict):
     """Main data cleaning workflow state"""
-    # Session information
+    # Session information - only set once by main controller
     session_id: str
     user_id: Optional[str]
     created_at: datetime
@@ -37,8 +38,8 @@ class DataCleaningState(TypedDict):
     pending_tasks: List[str]
     progress_percentage: float
     
-    # Agent communication
-    messages: List[BaseMessage]
+    # Agent communication - use add_messages for concurrent updates
+    messages: Annotated[List[BaseMessage], add_messages]
     agent_results: Dict[str, Dict]
     communication_log: List[Dict]
     

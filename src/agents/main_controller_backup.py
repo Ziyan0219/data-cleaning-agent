@@ -1,21 +1,24 @@
 """
 Main Controller Agent Implementation
 
-This module implements the central orchestrator for the data cleaning system.
-It coordinates all other agents and manages the overall workflow.
+This module implements the main controller agent that orchestrates the entire
+data cleaning workflow using LangGraph's state graph architecture.
 """
 
-import uuid
 import asyncio
+import uuid
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from pathlib import Path
-
-from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, END
 from loguru import logger
 
-from ..schemas.state import DataCleaningState, create_initial_state
+from langgraph.graph import StateGraph, END
+from langchain_openai import ChatOpenAI
+
+from ..schemas.state import (
+    DataCleaningState, 
+    create_initial_state, 
+    update_state_phase
+)
 from ..config.settings import get_settings
 from .data_analysis_agent import DataAnalysisAgent
 from .data_cleaning_agent import DataCleaningAgent
@@ -24,26 +27,27 @@ from .result_aggregation_agent import ResultAggregationAgent
 
 
 class MainControllerAgent:
-    """Main controller for data cleaning workflow"""
+    """Main Controller Agent Class"""
     
     def __init__(self):
-        """Initialize the main controller"""
         self.settings = get_settings()
         self.session_id = str(uuid.uuid4())
+        self.workflow = None
+        self.llm = self._initialize_llm()
         
-        # Initialize sub-agents
-        self.analysis_agent = DataAnalysisAgent()
-        self.cleaning_agent = DataCleaningAgent()
-        self.validation_agent = QualityValidationAgent()
-        self.aggregation_agent = ResultAggregationAgent()
+        # Initialize specialized agents
+        self.analysis_agent = DataAnalysisAgent(self.llm)
+        self.cleaning_agent = DataCleaningAgent(self.llm)
+        self.validation_agent = QualityValidationAgent(self.llm)
+        self.aggregation_agent = ResultAggregationAgent(self.llm)
         
         # Build workflow
-        self.workflow = self._build_workflow()
+        self._build_workflow()
         
         logger.info("Main Controller Agent initialized successfully")
     
-    def _get_llm(self):
-        """Get configured LLM instance"""
+    def _initialize_llm(self):
+        """Initialize LLM"""
         llm_config = self.settings.get_llm_config()
         
         return ChatOpenAI(
@@ -67,6 +71,7 @@ class MainControllerAgent:
         workflow.add_node("execute_cleaning", self._execute_cleaning)
         workflow.add_node("validate_results", self._validate_results)
         workflow.add_node("aggregate_results", self._aggregate_results)
+        workflow.add_node("handle_error", self._handle_error)
         
         # Set entry point
         workflow.set_entry_point("load_data")
@@ -79,10 +84,55 @@ class MainControllerAgent:
         workflow.add_edge("validate_results", "aggregate_results")
         workflow.add_edge("aggregate_results", END)
         
-        return workflow.compile()
+        # Add conditional edges for error handling
+        workflow.add_conditional_edges(
+            "load_data",
+            self._should_continue_after_load,
+            {
+                "continue": "analyze_data",
+                "error": "handle_error"
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "analyze_data",
+            self._should_continue_after_analysis,
+            {
+                "continue": "plan_cleaning",
+                "retry": "analyze_data",
+                "error": "handle_error"
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "execute_cleaning",
+            self._should_continue_after_cleaning,
+            {
+                "continue": "validate_results",
+                "retry": "execute_cleaning",
+                "error": "handle_error"
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "validate_results",
+            self._should_continue_after_validation,
+            {
+                "continue": "aggregate_results",
+                "retry_cleaning": "execute_cleaning",
+                "error": "handle_error"
+            }
+        )
+        
+        workflow.add_edge("handle_error", END)
+        
+        # Compile workflow
+        self.workflow = workflow.compile()
+        
+        logger.info("Workflow built successfully")
     
-    async def process_cleaning_request(self, user_requirements: str, 
-                                     data_source: str) -> Dict[str, Any]:
+    async def process_data(self, user_requirements: str, 
+                          data_source: str) -> Dict[str, Any]:
         """Process data cleaning request"""
         try:
             logger.info(f"Starting data cleaning process for session: {self.session_id}")
@@ -94,11 +144,9 @@ class MainControllerAgent:
                 data_source=data_source
             )
             
-            start_time = datetime.now()
-            
             # Execute workflow
+            start_time = datetime.now()
             final_state = await self.workflow.ainvoke(initial_state)
-            
             execution_time = (datetime.now() - start_time).total_seconds()
             
             # Prepare result
@@ -109,9 +157,6 @@ class MainControllerAgent:
                 "results": final_state.get("agent_results", {}),
                 "quality_metrics": final_state.get("quality_metrics", {}),
                 "final_data": final_state.get("processed_data"),
-                "final_report": final_state.get("agent_results", {}).get("aggregation", {}).get("final_report", ""),
-                "executive_summary": final_state.get("agent_results", {}).get("aggregation", {}).get("executive_summary", ""),
-                "detailed_metrics": final_state.get("agent_results", {}).get("aggregation", {}).get("detailed_metrics", {}),
                 "error": final_state.get("error_log", [])[-1] if final_state.get("error_log") else None
             }
             
@@ -127,10 +172,7 @@ class MainControllerAgent:
                 "execution_time": 0,
                 "results": {},
                 "quality_metrics": {},
-                "final_data": None,
-                "final_report": "",
-                "executive_summary": "",
-                "detailed_metrics": {}
+                "final_data": None
             }
     
     def _load_data(self, state: DataCleaningState) -> Dict[str, Any]:
@@ -148,17 +190,21 @@ class MainControllerAgent:
             elif data_source.endswith('.json'):
                 data_format = "json"
             else:
+                # Assume it's raw data content
                 data_format = "raw"
             
             # Load data based on format
             if data_format in ["csv", "excel", "json"]:
+                # Load from file
                 with open(data_source, 'r', encoding='utf-8') as f:
                     raw_data = f.read()
             else:
+                # Use as raw data
                 raw_data = data_source
             
             logger.info(f"Data loaded successfully: {len(raw_data)} characters")
             
+            # Return only the fields we want to update
             return {
                 "data_format": data_format,
                 "raw_data": raw_data,
@@ -185,6 +231,7 @@ class MainControllerAgent:
         logger.info("Analyzing data quality")
         
         try:
+            # Call data analysis agent
             analysis_result = self.analysis_agent.analyze_data_quality(
                 data=state["raw_data"],
                 user_requirements=state["user_requirements"]
@@ -192,6 +239,7 @@ class MainControllerAgent:
             
             logger.info(f"Data analysis completed: {len(analysis_result.get('quality_issues', []))} issues found")
             
+            # Return only the fields we want to update
             agent_results = state.get("agent_results", {})
             agent_results["analysis"] = analysis_result
             
@@ -223,6 +271,9 @@ class MainControllerAgent:
         logger.info("Planning cleaning operations")
         
         try:
+            # Generate cleaning plan based on analysis
+            analysis_result = state["agent_results"].get("analysis", {})
+            
             # Simple cleaning plan for cattle data
             cleaning_plan = {
                 "operations": [
@@ -266,121 +317,231 @@ class MainControllerAgent:
                 "error_log": state.get("error_log", []) + [error_entry]
             }
     
-    def _execute_cleaning(self, state: DataCleaningState) -> Dict[str, Any]:
+    def _plan_cleaning(self, state: DataCleaningState) -> DataCleaningState:
+        """Plan cleaning operations"""
+        logger.info("Planning cleaning operations")
+        
+        try:
+            # Generate cleaning plan based on analysis results
+            quality_issues = state["quality_issues"]
+            user_requirements = state["user_requirements"]
+            
+            # Create execution plan
+            execution_plan = []
+            
+            for issue in quality_issues:
+                operation = {
+                    "operation_id": str(uuid.uuid4()),
+                    "issue_type": issue.get("type"),
+                    "description": issue.get("description"),
+                    "affected_columns": issue.get("affected_columns", []),
+                    "severity": issue.get("severity", "medium"),
+                    "strategy": self._determine_cleaning_strategy(issue),
+                    "priority": self._calculate_priority(issue)
+                }
+                execution_plan.append(operation)
+            
+            # Sort by priority
+            execution_plan.sort(key=lambda x: x["priority"], reverse=True)
+            
+            state["execution_plan"] = execution_plan
+            state = update_state_phase(state, "planning_completed", 40.0)
+            
+            logger.info(f"Cleaning plan created: {len(execution_plan)} operations")
+            
+        except Exception as e:
+            logger.error(f"Error in planning: {str(e)}")
+            state["error_log"].append({
+                "phase": "plan_cleaning",
+                "error": str(e),
+                "timestamp": datetime.now()
+            })
+        
+        return state
+    
+    def _execute_cleaning(self, state: DataCleaningState) -> DataCleaningState:
         """Execute cleaning operations"""
         logger.info("Executing cleaning operations")
         
         try:
-            cleaning_result = self.cleaning_agent.clean_data(
+            # Call data cleaning agent
+            cleaning_result = self.cleaning_agent.execute_cleaning_plan(
                 data=state["raw_data"],
-                cleaning_plan={"operations": state["execution_plan"]},
-                user_requirements=state["user_requirements"]
+                execution_plan=state["execution_plan"],
+                config=state.get("cleaning_config", {})
             )
+            
+            # Update state with cleaning results
+            state["agent_results"]["cleaning"] = cleaning_result
+            state["processed_data"] = cleaning_result.get("cleaned_data")
+            state["completed_tasks"] = cleaning_result.get("completed_operations", [])
+            
+            state = update_state_phase(state, "cleaning_completed", 70.0)
             
             logger.info("Data cleaning completed successfully")
             
-            agent_results = state.get("agent_results", {})
-            agent_results["cleaning"] = cleaning_result
-            
-            return {
-                "agent_results": agent_results,
-                "processed_data": cleaning_result.get("cleaned_data"),
-                "current_phase": "cleaning_completed",
-                "progress_percentage": 70.0
-            }
-            
         except Exception as e:
-            logger.error(f"Error in cleaning: {str(e)}")
-            error_entry = {
+            logger.error(f"Error in cleaning execution: {str(e)}")
+            state["error_log"].append({
                 "phase": "execute_cleaning",
                 "error": str(e),
                 "timestamp": datetime.now()
-            }
-            
-            return {
-                "current_phase": "error",
-                "progress_percentage": 0.0,
-                "error_log": state.get("error_log", []) + [error_entry]
-            }
+            })
+            state["retry_count"] += 1
+        
+        return state
     
-    def _validate_results(self, state: DataCleaningState) -> Dict[str, Any]:
+    def _validate_results(self, state: DataCleaningState) -> DataCleaningState:
         """Validate cleaning results"""
         logger.info("Validating cleaning results")
         
         try:
-            validation_result = self.validation_agent.validate_quality(
+            # Call quality validation agent
+            validation_result = self.validation_agent.validate_cleaning_results(
                 original_data=state["raw_data"],
                 cleaned_data=state["processed_data"],
-                cleaning_log=state["agent_results"].get("cleaning", {}),
-                user_requirements=state["user_requirements"]
+                cleaning_log=state["agent_results"].get("cleaning", {})
             )
             
-            logger.info("Data validation completed successfully")
+            # Update state with validation results
+            state["agent_results"]["validation"] = validation_result
+            state["validation_results"] = validation_result
             
-            agent_results = state.get("agent_results", {})
-            agent_results["validation"] = validation_result
+            # Update quality metrics
+            if "quality_scores" in validation_result:
+                state["quality_metrics"].update(validation_result["quality_scores"])
             
-            return {
-                "agent_results": agent_results,
-                "validation_results": validation_result,
-                "current_phase": "validation_completed",
-                "progress_percentage": 90.0
-            }
+            state = update_state_phase(state, "validation_completed", 85.0)
+            
+            logger.info("Results validation completed")
             
         except Exception as e:
             logger.error(f"Error in validation: {str(e)}")
-            error_entry = {
+            state["error_log"].append({
                 "phase": "validate_results",
                 "error": str(e),
                 "timestamp": datetime.now()
-            }
-            
-            return {
-                "current_phase": "error",
-                "progress_percentage": 0.0,
-                "error_log": state.get("error_log", []) + [error_entry]
-            }
+            })
+        
+        return state
     
-    def _aggregate_results(self, state: DataCleaningState) -> Dict[str, Any]:
-        """Aggregate all results"""
-        logger.info("Aggregating results")
+    def _aggregate_results(self, state: DataCleaningState) -> DataCleaningState:
+        """Aggregate final results"""
+        logger.info("Aggregating final results")
         
         try:
+            # Call result aggregation agent
             aggregation_result = self.aggregation_agent.aggregate_results(
                 analysis_results=state["agent_results"].get("analysis", {}),
                 cleaning_results=state["agent_results"].get("cleaning", {}),
                 validation_results=state["agent_results"].get("validation", {})
             )
             
-            logger.info("Results aggregation completed successfully")
+            # Update state with aggregated results
+            state["agent_results"]["aggregation"] = aggregation_result
             
-            agent_results = state.get("agent_results", {})
-            agent_results["aggregation"] = aggregation_result
+            state = update_state_phase(state, "completed", 100.0)
             
-            return {
-                "agent_results": agent_results,
-                "current_phase": "completed",
-                "progress_percentage": 100.0
-            }
+            logger.info("Results aggregation completed")
             
         except Exception as e:
             logger.error(f"Error in aggregation: {str(e)}")
-            error_entry = {
+            state["error_log"].append({
                 "phase": "aggregate_results",
                 "error": str(e),
                 "timestamp": datetime.now()
-            }
-            
-            return {
-                "current_phase": "error",
-                "progress_percentage": 0.0,
-                "error_log": state.get("error_log", []) + [error_entry]
-            }
+            })
+        
+        return state
+    
+    def _handle_error(self, state: DataCleaningState) -> DataCleaningState:
+        """Handle errors"""
+        logger.error("Handling error in workflow")
+        
+        state = update_state_phase(state, "error", state["progress_percentage"])
+        
+        # Add error summary
+        if state["error_log"]:
+            latest_error = state["error_log"][-1]
+            logger.error(f"Latest error: {latest_error}")
+        
+        return state
+    
+    # Conditional edge functions
+    def _should_continue_after_load(self, state: DataCleaningState) -> str:
+        """Check if should continue after data loading"""
+        if state["current_phase"] == "error":
+            return "error"
+        return "continue"
+    
+    def _should_continue_after_analysis(self, state: DataCleaningState) -> str:
+        """Check if should continue after analysis"""
+        if state["current_phase"] == "error":
+            return "error"
+        
+        # Check if retry is needed
+        if state["retry_count"] > 0 and state["retry_count"] < self.settings.agent.retry_attempts:
+            return "retry"
+        
+        return "continue"
+    
+    def _should_continue_after_cleaning(self, state: DataCleaningState) -> str:
+        """Check if should continue after cleaning"""
+        if state["current_phase"] == "error":
+            return "error"
+        
+        # Check if retry is needed
+        if state["retry_count"] > 0 and state["retry_count"] < self.settings.agent.retry_attempts:
+            return "retry"
+        
+        return "continue"
+    
+    def _should_continue_after_validation(self, state: DataCleaningState) -> str:
+        """Check if should continue after validation"""
+        if state["current_phase"] == "error":
+            return "error"
+        
+        # Check if cleaning needs to be retried based on validation results
+        validation_results = state.get("validation_results", {})
+        overall_score = validation_results.get("overall_score", 0)
+        
+        if overall_score < 0.7 and state["retry_count"] < self.settings.agent.retry_attempts:
+            return "retry_cleaning"
+        
+        return "continue"
+    
+    # Helper functions
+    def _determine_cleaning_strategy(self, issue: Dict) -> str:
+        """Determine cleaning strategy for an issue"""
+        issue_type = issue.get("type", "")
+        
+        strategy_mapping = {
+            "missing_values": "fill_mean",
+            "duplicates": "remove_duplicates",
+            "outliers": "flag_outliers",
+            "format_inconsistency": "standardize_format",
+            "type_inconsistency": "convert_type"
+        }
+        
+        return strategy_mapping.get(issue_type, "manual_review")
+    
+    def _calculate_priority(self, issue: Dict) -> int:
+        """Calculate priority for an issue"""
+        severity = issue.get("severity", "medium")
+        
+        priority_mapping = {
+            "high": 3,
+            "medium": 2,
+            "low": 1
+        }
+        
+        return priority_mapping.get(severity, 2)
 
 
-# Global function for external use
-async def process_cleaning_request(user_requirements: str, data_source: str) -> Dict[str, Any]:
-    """Process cleaning request using main controller"""
+# Convenience function for direct usage
+async def process_cleaning_request(user_requirements: str, 
+                                 data_source: str) -> Dict[str, Any]:
+    """Process a data cleaning request"""
     controller = MainControllerAgent()
-    return await controller.process_cleaning_request(user_requirements, data_source)
+    return await controller.process_data(user_requirements, data_source)
 
