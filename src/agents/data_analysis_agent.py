@@ -205,7 +205,9 @@ Please always return structured analysis results in JSON format."""),
                 "priority": 3
             })
         
-        return cleaning_planDict[str, Any]:
+        return cleaning_plan
+    
+    def _calculate_basic_statistics(self, data: str) -> Dict[str, Any]:
         """Calculate basic statistical information"""
         try:
             # Try to parse as DataFrame

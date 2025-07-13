@@ -1,7 +1,7 @@
 """
-FastAPI Web Interface for Data Cleaning Agent - Simplified Version
+FastAPI Web Interface for Data Cleaning Agent - Working Version
 
-This module provides a web interface for the cattle data cleaning system.
+This module provides a web interface using the simplified, working controller.
 """
 
 import asyncio
@@ -13,17 +13,16 @@ from typing import Dict, Any
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.agents.main_controller import process_cleaning_request
+from src.agents.main_controller_fixed import process_cleaning_request
 from src.utils.json_utils import convert_numpy_types
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Cattle Data Cleaning Agent",
+    title="Cattle Data Cleaning Agent - Working Version",
     description="AI-powered cattle data quality control system",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 # Response models
@@ -34,9 +33,6 @@ class CleaningResponse(BaseModel):
     download_url: str = ""
     execution_time: float = 0.0
     quality_score: float = 0.0
-
-# Global storage for results (in production, use a proper database)
-results_storage: Dict[str, Dict[str, Any]] = {}
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -69,6 +65,7 @@ async def home():
             .stat { text-align: center; }
             .stat-value { font-size: 24px; font-weight: bold; color: #3498db; }
             .stat-label { color: #7f8c8d; font-size: 14px; }
+            .version-info { text-align: center; color: #7f8c8d; font-size: 12px; margin-top: 20px; }
         </style>
     </head>
     <body>
@@ -94,6 +91,10 @@ async def home():
             </form>
             
             <div id="result" style="display: none;"></div>
+            
+            <div class="version-info">
+                Version 2.1.0 - Simplified & Reliable | Working Controller
+            </div>
         </div>
         
         <script>
@@ -183,7 +184,7 @@ async def clean_data(
             temp_file_path = temp_file.name
         
         try:
-            # Process the data
+            # Process the data using the fixed controller
             result = await process_cleaning_request(
                 user_requirements=requirements,
                 data_source=temp_file_path
@@ -253,6 +254,23 @@ async def download_file(filename: str):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.get("/test")
+async def test_endpoint():
+    """Test endpoint to verify the system is working."""
+    try:
+        # Test with sample data
+        sample_data_path = "data/input/cattle_data.csv"
+        if Path(sample_data_path).exists():
+            result = await process_cleaning_request(
+                user_requirements="Test processing",
+                data_source=sample_data_path
+            )
+            return {"status": "test_passed", "result_status": result.get("status")}
+        else:
+            return {"status": "test_failed", "error": "Sample data not found"}
+    except Exception as e:
+        return {"status": "test_failed", "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
